@@ -1,4 +1,27 @@
 #include "utils.hpp"
+#include <cstdlib>
+
+EuclidResult extended_gcd(long long a, long long b)
+{
+    long long u1 = a, u2 = 1, u3 = 0;
+    long long v1 = b, v2 = 0, v3 = 1;
+
+    while (v1 != 0)
+    {
+        long long q = u1 / v1;
+        long long t1 = u1 % v1;
+        long long t2 = u2 - q * v2;
+        long long t3 = u3 - q * v3;
+
+        u1 = v1;
+        u2 = v2;
+        u3 = v3;
+        v1 = t1;
+        v2 = t2;
+        v3 = t3;
+    }
+    return {u1, u2, u3};
+}
 
 long long power_mod(long long a, long long x, long long p)
 {
@@ -12,4 +35,38 @@ long long power_mod(long long a, long long x, long long p)
         x >>= 1;         // сдвигаем биты x вправо
     }
     return y;
+}
+
+bool is_prime_fermat(long long p, int rounds = 100)
+{
+    if (p < 2)
+        return false;
+    if (p == 2 || p == 3)
+        return true;
+
+    for (int i = 0; i < rounds; i++)
+    {
+        long long a = rand() % (p - 3) + 2; // случайное a из [2, p-2]
+
+        if (extended_gcd(a, p).g != 1)
+            return false; // общий делитель: точно составное
+        if (power_mod(a, p - 1, p) != 1)
+            return false; // теорема Ферма нарушена: точно составное
+    }
+    return true; // ни одна проверка не поймала: вероятно простое
+}
+
+long long random_number(long long lo, long long hi)
+{
+    return lo + rand() % (hi - lo + 1);
+}
+
+long long random_prime(long long lo, long long hi)
+{
+    while (true)
+    {
+        long long c = random_number(lo, hi);
+        if (is_prime_fermat(c))
+            return c;
+    }
 }

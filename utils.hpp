@@ -12,3 +12,7 @@ EuclidResult extended_gcd(long long a, long long b);
 bool is_prime_fermat(long long p, int rounds);
 long long random_number(long long lo, long long hi);
 long long random_prime(long long lo, long long hi);
+long long baby_giant(long long a, long long y, long long p);
+bool generate_dlog_params(long long lo, long long hi,
+                          long long &a, long long &y, long long &p,
+                          long long &x_secret);

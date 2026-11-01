@@ -394,3 +394,310 @@ def rsa_verify_file(input_path, signature_path, n, e):
 
     except (ValueError, TypeError, OverflowError):
         return False
+
+def elgamal_signature_generate_keys(bits=32):
+    """Генерирует ключи для электронной подписи Эль-Гамаля."""
+
+    # Генерируем безопасное простое число p = 2q + 1.
+    while True:
+        q = generate_prime(bits - 1)
+        p = 2 * q + 1
+
+        if fermat_test(p):
+            break
+
+    # Ищем первообразный корень по модулю p.
+    while True:
+        g = random.randint(2, p - 2)
+
+        if fast_pow(g, 2, p) != 1 and fast_pow(g, q, p) != 1:
+            break
+
+    # Закрытый и открытый ключи.
+    x = secrets.randbelow(p - 2) + 1
+    y = fast_pow(g, x, p)
+
+    return {
+        "p": p,
+        "g": g,
+        "x": x,
+        "y": y
+    }
+
+
+def elgamal_sign_file(input_path, signature_path, p, g, x):
+    """Подписывает каждый байт SHA-256 хеша файла."""
+
+    with open(input_path, "rb") as f:
+        digest = hashlib.sha256(f.read()).digest()
+
+    signature = []
+
+    for h in digest:
+        while True:
+            k = secrets.randbelow(p - 2) + 1
+
+            if math.gcd(k, p - 1) == 1:
+                break
+
+        r = fast_pow(g, k, p)
+
+        k_inverse = get_inverse_element(k, p - 1)
+
+        s = (k_inverse * (h - x * r)) % (p - 1)
+
+        signature.append([r, s])
+
+    with open(signature_path, "w", encoding="utf-8") as f:
+        json.dump(signature, f)
+
+
+def elgamal_verify_file(input_path, signature_path, p, g, y):
+    """Проверяет электронную подпись Эль-Гамаля."""
+
+    with open(input_path, "rb") as f:
+        digest = hashlib.sha256(f.read()).digest()
+
+    with open(signature_path, "r", encoding="utf-8") as f:
+        signature = json.load(f)
+
+    if not isinstance(signature, list) or len(signature) != len(digest):
+        return False
+
+    for h, pair in zip(digest, signature):
+        if not isinstance(pair, list) or len(pair) != 2:
+            return False
+
+        r, s = pair
+
+        if not (1 <= r < p and 0 <= s < p - 1):
+            return False
+
+        left = fast_pow(g, h, p)
+
+        right = (
+            fast_pow(y, r, p) *
+            fast_pow(r, s, p)
+        ) % p
+
+        if left != right:
+            return False
+
+    return True
+
+def gost_generate_keys(p_bits=32, q_bits=16):
+    """Генерирует параметры и ключи ГОСТ Р 34.10-94."""
+
+    q = generate_prime(q_bits)
+
+    # Ищем простое p, для которого q делит p - 1.
+    while True:
+        lower = (2 ** (p_bits - 1)) // q
+        upper = (2 ** p_bits - 1) // q
+
+        multiplier = random.randrange(lower, upper + 1)
+
+        p = multiplier * q + 1
+
+        if p.bit_length() == p_bits and fermat_test(p):
+            break
+
+    # Генерируем параметр a.
+    while True:
+        h = random.randint(2, p - 2)
+
+        a = fast_pow(h, (p - 1) // q, p)
+
+        if a > 1:
+            break
+
+    # Закрытый и открытый ключи.
+    x = secrets.randbelow(q - 1) + 1
+    y = fast_pow(a, x, p)
+
+    return {
+        "p": p,
+        "q": q,
+        "a": a,
+        "x": x,
+        "y": y
+    }
+
+
+def gost_sign_file(input_path, signature_path, p, q, a, x):
+    """Подписывает каждый байт SHA-256 хеша файла."""
+
+    with open(input_path, "rb") as f:
+        digest = hashlib.sha256(f.read()).digest()
+
+    signature = []
+
+    for h in digest:
+        e = h % q
+
+        if e == 0:
+            e = 1
+
+        while True:
+            k = secrets.randbelow(q - 1) + 1
+
+            r = fast_pow(a, k, p) % q
+
+            if r == 0:
+                continue
+
+            s = (k * e + x * r) % q
+
+            if s != 0:
+                break
+
+        signature.append([r, s])
+
+    with open(signature_path, "w", encoding="utf-8") as f:
+        json.dump(signature, f)
+
+
+def gost_verify_file(input_path, signature_path, p, q, a, y):
+    """Проверяет подпись ГОСТ Р 34.10-94."""
+
+    with open(input_path, "rb") as f:
+        digest = hashlib.sha256(f.read()).digest()
+
+    with open(signature_path, "r", encoding="utf-8") as f:
+        signature = json.load(f)
+
+    if not isinstance(signature, list) or len(signature) != len(digest):
+        return False
+
+    for h, pair in zip(digest, signature):
+        if not isinstance(pair, list) or len(pair) != 2:
+            return False
+
+        r, s = pair
+
+        if not (0 < r < q and 0 < s < q):
+            return False
+
+        e = h % q
+
+        if e == 0:
+            e = 1
+
+        v = get_inverse_element(e, q)
+
+        z1 = (s * v) % q
+        z2 = (-r * v) % q
+
+        u = (
+            fast_pow(a, z1, p) *
+            fast_pow(y, z2 % q, p)
+        ) % p
+
+        u = u % q
+
+        if u != r:
+            return False
+
+    return True
+
+def dsa_generate_keys(p_bits=64, q_bits=32):
+    """Генерирует параметры и ключи DSA."""
+
+    q = generate_prime(q_bits)
+
+    # Ищем простое p, для которого q делит p - 1.
+    while True:
+        lower = (2 ** (p_bits - 1)) // q
+        upper = (2 ** p_bits - 1) // q
+
+        multiplier = random.randrange(lower, upper + 1)
+
+        p = multiplier * q + 1
+
+        if p.bit_length() == p_bits and fermat_test(p):
+            break
+
+    # Генерируем параметр g.
+    while True:
+        h = random.randint(2, p - 2)
+
+        g = fast_pow(h, (p - 1) // q, p)
+
+        if g > 1:
+            break
+
+    # Закрытый и открытый ключи.
+    x = secrets.randbelow(q - 1) + 1
+    y = fast_pow(g, x, p)
+
+    return {
+        "p": p,
+        "q": q,
+        "g": g,
+        "x": x,
+        "y": y
+    }
+
+
+def dsa_sign_file(input_path, signature_path, p, q, g, x):
+    """Подписывает SHA-256 хеш файла алгоритмом DSA."""
+
+    with open(input_path, "rb") as f:
+        digest = hashlib.sha256(f.read()).digest()
+
+    z = int.from_bytes(digest, "big") % q
+
+    while True:
+        k = secrets.randbelow(q - 1) + 1
+
+        r = fast_pow(g, k, p) % q
+
+        if r == 0:
+            continue
+
+        k_inverse = get_inverse_element(k, q)
+
+        s = (k_inverse * (z + x * r)) % q
+
+        if s != 0:
+            break
+
+    signature = {
+        "r": r,
+        "s": s
+    }
+
+    with open(signature_path, "w", encoding="utf-8") as f:
+        json.dump(signature, f)
+
+
+def dsa_verify_file(input_path, signature_path, p, q, g, y):
+    """Проверяет подпись DSA."""
+
+    with open(input_path, "rb") as f:
+        digest = hashlib.sha256(f.read()).digest()
+
+    with open(signature_path, "r", encoding="utf-8") as f:
+        signature = json.load(f)
+
+    r = signature["r"]
+    s = signature["s"]
+
+    if not (0 < r < q and 0 < s < q):
+        return False
+
+    z = int.from_bytes(digest, "big") % q
+
+    w = get_inverse_element(s, q)
+
+    u1 = (z * w) % q
+    u2 = (r * w) % q
+
+    v = (
+        fast_pow(g, u1, p) *
+        fast_pow(y, u2, p)
+    ) % p
+
+    v = v % q
+
+    return v == r
